@@ -1,4 +1,4 @@
-<!-- HorseMed Auto-Fill v1.0 – Compressed baking, still ~MP1~ -->
+<!-- HorseMed Auto-Fill v1.1 -->
 
 let config = { defaultQuantity: 1, administrationRoutes: [], treatmentTypes: [] };
 
@@ -34,7 +34,7 @@ function dispatchEvents(element) {
 }
 
 // ================================================================
-// Diagnoskod modal (full code)
+// Diagnoskod modal
 // ================================================================
 let diagnosModal = null;
 
@@ -97,13 +97,10 @@ async function performSearch(query) {
         if (table) {
           const diagInput = table.querySelector('.med-diagnoskod');
           const reasonInput = table.querySelector('.med-reason');
-          if (diagInput) diagInput.value = code;
-          if (reasonInput) reasonInput.value = desc;
-          if (diagInput) dispatchEvents(diagInput);
-          if (reasonInput) dispatchEvents(reasonInput);
+          if (diagInput) { diagInput.value = code; dispatchEvents(diagInput); }
+          if (reasonInput) { reasonInput.value = desc; dispatchEvents(reasonInput); }
         }
         diagnosModal.style.display = 'none';
-        console.log('Modal selected → Code:', code, 'Reason:', desc);
       });
     });
   } catch (e) {
@@ -165,11 +162,26 @@ function handlePlannedEventForms() {
     ['ml','g','pc','kg_horse'].forEach(u => { const opt = document.createElement('option'); opt.value = u; opt.textContent = u; unitSelect.appendChild(opt); });
     addField('Unit / Enhet:', unitSelect);
 
-    const routeInput = document.createElement('input'); routeInput.type = 'text'; routeInput.className = 'med-route form-control'; routeInput.style.width = '100%'; routeInput.setAttribute('list', 'admin-routes'); routeInput.placeholder = 'Börja skriva för förslag...';
-    addField('Administrationssätt:', routeInput);
-    const datalist = document.createElement('datalist'); datalist.id = 'admin-routes';
-    config.administrationRoutes.forEach(route => { const option = document.createElement('option'); option.value = route; datalist.appendChild(option); });
-    td.appendChild(datalist);
+    // === ROUTE DROPDOWN – populated from config ===
+    const routeSelect = document.createElement('select');
+    routeSelect.className = 'med-route form-control';
+    routeSelect.style.width = '100%';
+
+    // Default option
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = 'Välj...';
+    routeSelect.appendChild(defaultOpt);
+
+    // Insert all routes from your config list
+    config.administrationRoutes.forEach(route => {
+      const opt = document.createElement('option');
+      opt.value = route;
+      opt.textContent = route;
+      routeSelect.appendChild(opt);
+    });
+
+    addField('Administrationssätt:', routeSelect);
 
     const diagWrapper = document.createElement('div'); diagWrapper.style.display = 'flex'; diagWrapper.style.gap = '8px';
     const diagInput = document.createElement('input'); diagInput.type = 'text'; diagInput.className = 'med-diagnoskod form-control'; diagInput.style.flex = '1'; diagInput.placeholder = 't.ex. XP15';
@@ -189,13 +201,13 @@ function handlePlannedEventForms() {
 
       const quantity = parseFloat(qtyInput.value) || 0;
       const unit = unitSelect.value;
-      const routeStr = routeInput.value.trim();
+      const routeStr = routeSelect.value;
       const routeIndex = config.administrationRoutes.indexOf(routeStr);
       const diagnosisCode = diagInput.value.trim();
       const reasonText = reasonInput.value.trim();
 
       const baked = { t: treatmentId, q: quantity, u: unit };
-      if (routeIndex >= 0) baked.r = routeIndex;           // compressed route
+      if (routeIndex >= 0) baked.r = routeIndex;
       if (diagnosisCode) baked.d = diagnosisCode;
       if (reasonText) baked.reason = reasonText;
 
@@ -208,7 +220,7 @@ function handlePlannedEventForms() {
 
     qtyInput.addEventListener('input', bakeData);
     unitSelect.addEventListener('change', bakeData);
-    routeInput.addEventListener('input', bakeData);
+    routeSelect.addEventListener('change', bakeData);
     diagInput.addEventListener('input', bakeData);
     reasonInput.addEventListener('input', bakeData);
 
@@ -244,11 +256,12 @@ function handlePlannedEventList() {
 }
 
 // ================================================================
-// 3. Auto-fill – v3.7 (exact DOM match + dummy input cleanup)
+// 3. Auto-fill
 // ================================================================
 function autoFillApplyForm(data) {
   console.log('Starting apply with data:', data);
 
+  // Click Behandling button
   const behandlingBtn = Array.from(document.querySelectorAll('button')).find(el =>
     el.textContent && el.textContent.trim() === 'Behandling'
   );
@@ -261,7 +274,7 @@ function autoFillApplyForm(data) {
       return;
     }
 
-    // === 1. Set hidden treatment_type_id (already worked) ===
+    // ONLY set the hidden field – nothing else
     let hidden = selectTypeTd.querySelector('input[type="hidden"][name="events[0][treatment_type_id]"]');
     if (!hidden) {
       hidden = document.createElement('input');
@@ -272,28 +285,10 @@ function autoFillApplyForm(data) {
     if (data.t != null) {
       hidden.value = String(data.t);
       dispatchEvents(hidden);
+      console.log('Hidden treatment_type_id set to', data.t);
     }
 
-    // === 2. CRITICAL: Remove the dummy text input that breaks validation ===
-    const dummyText = selectTypeTd.querySelector('input[type="text"][tabindex="-1"]');
-    if (dummyText) dummyText.remove();
-
-    // === 3. Remove any "Ingen vald" message ===
-    const noneSpan = selectTypeTd.querySelector('span[style*="rgb(228, 0, 0)"], .none-selected, span:has(i.glyphicon-remove)');
-    if (noneSpan) noneSpan.remove();
-
-    // === 4. Build exact <p> structure that manual selection uses ===
-    let displayP = selectTypeTd.querySelector('p');
-    if (!displayP) {
-      displayP = document.createElement('p');
-      selectTypeTd.appendChild(displayP);
-    }
-    const treatment = config.treatmentTypes.find(t => t.id === data.t) || {};
-    const displayName = treatment.name || `Behandling (ID ${data.t || 'N/A'})`;
-    const displayInfo = `${treatment.dosage_form || 'injektionsvätska'}\n${treatment.strength || 'n/a'}`;
-    displayP.innerHTML = `<b>${displayName}</b>\n${displayInfo}`;
-
-    // === 5. Fill the rest (unchanged) ===
+    // Fill the rest of the fields (these are safe)
     const qtyInput = document.querySelector('input[name^="events["][name$="][quantity]"]');
     if (qtyInput) { qtyInput.value = data.q || 1; dispatchEvents(qtyInput); }
 
@@ -312,9 +307,6 @@ function autoFillApplyForm(data) {
     const reasonInput = document.querySelector('input[name="events[0][reason]"]');
     if (reasonInput && data.reason) { reasonInput.value = data.reason; dispatchEvents(reasonInput); }
 
-    // Extra safety: dispatch on the whole td
-    dispatchEvents(selectTypeTd);
-
     // Visual feedback
     const formContainer = document.querySelector('.add-events-content') || document.querySelector('form');
     if (formContainer) {
@@ -324,11 +316,13 @@ function autoFillApplyForm(data) {
       setTimeout(() => { formContainer.style.backgroundColor = ''; }, 1400);
     }
 
-    console.log('v3.7 Apply completed');
-  }, 1300);   // slightly longer delay for safety
+    console.log('Minimal Apply completed – manual modal selection should now work');
+  }, 1300);
 }
 
-// Watcher + init
+// ================================================================
+// Watcher
+// ================================================================
 function startWatcher() {
   handlePlannedEventForms();
   handlePlannedEventList();
@@ -337,10 +331,24 @@ function startWatcher() {
   setInterval(() => { handlePlannedEventForms(); handlePlannedEventList(); }, 800);
 }
 
+function injectCommentCSS() {
+  const style = document.createElement('style');
+  style.textContent = `
+    /* Only wrap the Kommentar cell content – prevents long ~MP1~ strings from expanding the box */
+    table.event-details-table td[colspan="12"] span {
+      word-break: break-word;
+      white-space: pre-wrap;
+      display: block;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 async function init() {
   await loadConfig();
+  injectCommentCSS();
   startWatcher();
-  console.log('HorseMed Auto-Fill v3.6 loaded');
+  console.log('HorseMed Auto-Fill v4.0 – route dropdown + compact comment');
 }
 
 init();

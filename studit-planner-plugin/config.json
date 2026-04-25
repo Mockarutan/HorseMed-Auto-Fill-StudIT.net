@@ -11,7 +11,7 @@
     "Oralt",
     "Peroralt",
     "Rektalt",
-    "Subkutant",
+    "Subkutant"
   ],
   "treatmentTypes": [
     {"id":31,"name":"Abortvirus vaccination","strength":"n/a","dosage_form":"injektionsvätska","unit":"ml","quantity":null,"quantity_text":null,"route_of_administration":"","handle_fee":true},
