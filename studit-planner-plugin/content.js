@@ -1,4 +1,4 @@
-<!-- HorseMed Auto-Fill v1.1 -->
+<!-- HorseMed Auto-Fill v4.1 – Visible treatment type + safe Vue modal -->
 
 let config = { defaultQuantity: 1, administrationRoutes: [], treatmentTypes: [] };
 
@@ -109,7 +109,7 @@ async function performSearch(query) {
 }
 
 // ================================================================
-// 1. Advanced fields
+// 1. Advanced fields – route dropdown
 // ================================================================
 function handlePlannedEventForms() {
   const tables = document.querySelectorAll('table.add-planned-event');
@@ -162,25 +162,18 @@ function handlePlannedEventForms() {
     ['ml','g','pc','kg_horse'].forEach(u => { const opt = document.createElement('option'); opt.value = u; opt.textContent = u; unitSelect.appendChild(opt); });
     addField('Unit / Enhet:', unitSelect);
 
-    // === ROUTE DROPDOWN – populated from config ===
-    const routeSelect = document.createElement('select');
-    routeSelect.className = 'med-route form-control';
+    // Route dropdown from config
+    const routeSelect = document.createElement('select'); 
+    routeSelect.className = 'med-route form-control'; 
     routeSelect.style.width = '100%';
-
-    // Default option
-    const defaultOpt = document.createElement('option');
-    defaultOpt.value = '';
-    defaultOpt.textContent = 'Välj...';
+    const defaultOpt = document.createElement('option'); defaultOpt.value = ''; defaultOpt.textContent = 'Välj...';
     routeSelect.appendChild(defaultOpt);
-
-    // Insert all routes from your config list
     config.administrationRoutes.forEach(route => {
-      const opt = document.createElement('option');
-      opt.value = route;
-      opt.textContent = route;
+      const opt = document.createElement('option'); 
+      opt.value = route; 
+      opt.textContent = route; 
       routeSelect.appendChild(opt);
     });
-
     addField('Administrationssätt:', routeSelect);
 
     const diagWrapper = document.createElement('div'); diagWrapper.style.display = 'flex'; diagWrapper.style.gap = '8px';
@@ -215,7 +208,7 @@ function handlePlannedEventForms() {
       const clean = current.replace(new RegExp(MARKER + '.*?' + MARKER, 's'), '').trim();
       commentInput.value = clean ? clean + '\n' + encodeData(baked) : encodeData(baked);
 
-      console.log('Baked compressed →', baked);
+      console.log('✅ Baked compressed →', baked);
     }
 
     qtyInput.addEventListener('input', bakeData);
@@ -233,7 +226,7 @@ function handlePlannedEventForms() {
 }
 
 // ================================================================
-// 2. Green Apply button
+// Green Apply button
 // ================================================================
 function handlePlannedEventList() {
   const tables = document.querySelectorAll('table.event-details-table');
@@ -256,56 +249,105 @@ function handlePlannedEventList() {
 }
 
 // ================================================================
-// 3. Auto-fill
+// Helper: wait for treatment and select via UI
+// ================================================================
+function waitForTreatmentAndSelect(treatmentName, onDone, attempts = 15) {
+  const items = document.querySelectorAll('.item-container');
+
+  if (items.length > 0) {
+    for (const item of items) {
+      const header = item.querySelector('.item-header');
+      if (!header) continue;
+
+      if (header.textContent.trim() === treatmentName) {
+        item.click();
+        console.log('✅ Selected treatment via UI:', treatmentName);
+
+        // Let Vue settle before continuing
+        setTimeout(() => onDone && onDone(), 200);
+        return;
+      }
+    }
+  }
+
+  if (attempts > 0) {
+    setTimeout(() => waitForTreatmentAndSelect(treatmentName, onDone, attempts - 1), 100);
+  } else {
+    console.warn('❌ Could not find treatment in modal:', treatmentName);
+    onDone && onDone();
+  }
+}
+
+// ================================================================
+// Helper: fill remaining fields
+// ================================================================
+function fillOtherFields(data) {
+  const qtyInput = document.querySelector('input[name^="events["][name$="][quantity]"]');
+  if (qtyInput) { qtyInput.value = data.q || 1; dispatchEvents(qtyInput); }
+
+  const unitSelect = document.querySelector('select[name^="events["][name$="][unit]"]');
+  if (unitSelect && data.u) { unitSelect.value = data.u; dispatchEvents(unitSelect); }
+
+  const routeInput = document.querySelector('input[name^="events["][name$="][route_of_administration]"]');
+  if (routeInput && typeof data.r === 'number') {
+    const routeStr = config.administrationRoutes[data.r];
+    if (routeStr) { routeInput.value = routeStr; dispatchEvents(routeInput); }
+  }
+
+  const diagInput = document.querySelector('input[name="events[0][jv_reason_code]"]');
+  if (diagInput && data.d) { diagInput.value = data.d; dispatchEvents(diagInput); }
+
+  const reasonInput = document.querySelector('input[name="events[0][reason]"]');
+  if (reasonInput && data.reason) { reasonInput.value = data.reason; dispatchEvents(reasonInput); }
+}
+
+// ================================================================
+// 3. Auto-fill – FIXED (Vue-safe)
 // ================================================================
 function autoFillApplyForm(data) {
   console.log('Starting apply with data:', data);
 
-  // Click Behandling button
+  // Step 1: open form
   const behandlingBtn = Array.from(document.querySelectorAll('button')).find(el =>
     el.textContent && el.textContent.trim() === 'Behandling'
   );
   if (behandlingBtn) behandlingBtn.click();
 
+  // Step 2: wait for form render
   setTimeout(() => {
+
     const selectTypeTd = document.querySelector('.select-type');
     if (!selectTypeTd) {
       console.warn('.select-type not found');
       return;
     }
 
-    // ONLY set the hidden field – nothing else
-    let hidden = selectTypeTd.querySelector('input[type="hidden"][name="events[0][treatment_type_id]"]');
-    if (!hidden) {
-      hidden = document.createElement('input');
-      hidden.type = 'hidden';
-      hidden.name = 'events[0][treatment_type_id]';
-      selectTypeTd.appendChild(hidden);
-    }
+    // Step 3: select treatment via UI (NO DOM hacking)
     if (data.t != null) {
-      hidden.value = String(data.t);
-      dispatchEvents(hidden);
-      console.log('Hidden treatment_type_id set to', data.t);
+      const treatment = config.treatmentTypes.find(t => t.id === data.t);
+
+      if (!treatment) {
+        console.warn('❌ No treatment found for id:', data.t);
+        fillOtherFields(data);
+        return;
+      }
+
+      const selectBtn = selectTypeTd.querySelector('button');
+      if (!selectBtn) {
+        console.warn('❌ Select button not found');
+        fillOtherFields(data);
+        return;
+      }
+
+      selectBtn.click();
+
+      waitForTreatmentAndSelect(treatment.name, () => {
+        fillOtherFields(data);
+      });
+
+    } else {
+      fillOtherFields(data);
     }
-
-    // Fill the rest of the fields (these are safe)
-    const qtyInput = document.querySelector('input[name^="events["][name$="][quantity]"]');
-    if (qtyInput) { qtyInput.value = data.q || 1; dispatchEvents(qtyInput); }
-
-    const unitSelect = document.querySelector('select[name^="events["][name$="][unit]"]');
-    if (unitSelect && data.u) { unitSelect.value = data.u; dispatchEvents(unitSelect); }
-
-    const routeInput = document.querySelector('input[name^="events["][name$="][route_of_administration]"]');
-    if (routeInput && typeof data.r === 'number') {
-      const routeStr = config.administrationRoutes[data.r];
-      if (routeStr) { routeInput.value = routeStr; dispatchEvents(routeInput); }
-    }
-
-    const diagInput = document.querySelector('input[name="events[0][jv_reason_code]"]');
-    if (diagInput && data.d) { diagInput.value = data.d; dispatchEvents(diagInput); }
-
-    const reasonInput = document.querySelector('input[name="events[0][reason]"]');
-    if (reasonInput && data.reason) { reasonInput.value = data.reason; dispatchEvents(reasonInput); }
 
     // Visual feedback
     const formContainer = document.querySelector('.add-events-content') || document.querySelector('form');
@@ -316,12 +358,12 @@ function autoFillApplyForm(data) {
       setTimeout(() => { formContainer.style.backgroundColor = ''; }, 1400);
     }
 
-    console.log('Minimal Apply completed – manual modal selection should now work');
+    console.log('✅ Apply completed (Vue-safe)');
   }, 1300);
 }
 
 // ================================================================
-// Watcher
+// Watcher + CSS
 // ================================================================
 function startWatcher() {
   handlePlannedEventForms();
@@ -334,7 +376,6 @@ function startWatcher() {
 function injectCommentCSS() {
   const style = document.createElement('style');
   style.textContent = `
-    /* Only wrap the Kommentar cell content – prevents long ~MP1~ strings from expanding the box */
     table.event-details-table td[colspan="12"] span {
       word-break: break-word;
       white-space: pre-wrap;
@@ -348,7 +389,7 @@ async function init() {
   await loadConfig();
   injectCommentCSS();
   startWatcher();
-  console.log('HorseMed Auto-Fill v4.0 – route dropdown + compact comment');
+  console.log('HorseMed Auto-Fill v4.1 loaded');
 }
 
 init();
