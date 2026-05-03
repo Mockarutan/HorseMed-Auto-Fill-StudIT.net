@@ -113,116 +113,151 @@ async function performSearch(query) {
 // ================================================================
 function handlePlannedEventForms() {
   const tables = document.querySelectorAll('table.add-planned-event');
+
   tables.forEach(function(table) {
-    if (table.dataset.medPluginAdded) return;
-    table.dataset.medPluginAdded = 'true';
 
-    const rows = table.querySelectorAll('tr');
-    let commentRow = null;
-    let commentInput = null;
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i].textContent.includes('Kommentar')) {
-        commentRow = rows[i];
-        commentInput = commentRow.querySelector('input[name^="planned_events["][name$="][comments]"]');
+    const typeSelect = table.querySelector('select[name^="planned_events["][name$="][event_type]"]');
+    if (!typeSelect) return;
+
+    // Function to handle visibility
+    function updatePluginVisibility() {
+      const isTreatment = typeSelect.value === 'treatment';
+
+      // If not treatment → remove plugin UI if it exists
+      if (!isTreatment) {
+        table.querySelectorAll('[data-med-plugin-row]').forEach(el => el.remove());
+        table.dataset.medPluginAdded = '';
+        return;
       }
-    }
-    if (!commentInput) return;
 
-    const newRow = document.createElement('tr');
-    const td = document.createElement('td');
-    td.setAttribute('colspan', '2');
-    td.style.padding = '15px 20px 15px 25px';
-    td.style.borderTop = '3px solid #5cb85c';
-    td.style.backgroundColor = '#f8fff8';
+      const rows = table.querySelectorAll('tr');
+      let commentRow = null;
+      let commentInput = null;
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i].textContent.includes('Kommentar')) {
+          commentRow = rows[i];
+          commentInput = commentRow.querySelector('input[name^="planned_events["][name$="][comments]"]');
+        }
+      }
+      if (!commentInput) return;
 
-    const title = document.createElement('strong');
-    title.textContent = 'Advanced medication details (plugin)';
-    td.appendChild(title);
-    td.appendChild(document.createElement('br'));
-    td.appendChild(document.createElement('br'));
+      // If treatment and already added → do nothing
+      if (table.dataset.medPluginAdded) return;
 
-    function addField(labelText, element) {
-      const wrapper = document.createElement('div');
-      wrapper.style.marginBottom = '16px';
-      const label = document.createElement('label');
-      label.style.position = 'static';
-      label.style.display = 'block';
-      label.style.marginBottom = '6px';
-      label.style.fontWeight = '600';
-      label.textContent = labelText;
-      wrapper.appendChild(label);
-      wrapper.appendChild(element);
-      td.appendChild(wrapper);
+      // Mark and continue with existing logic
+      table.dataset.medPluginAdded = 'true';
+
+      // 👉 FALL THROUGH to your existing UI creation code
+      injectPluginUI(table, commentRow, commentInput );
     }
 
-    const qtyInput = document.createElement('input'); qtyInput.type = 'number'; qtyInput.className = 'med-quantity form-control'; qtyInput.value = config.defaultQuantity || 1; qtyInput.step = '0.001'; qtyInput.style.width = '100%';
-    addField('Quantity / Mängd:', qtyInput);
-
-    const unitSelect = document.createElement('select'); unitSelect.className = 'med-unit form-control'; unitSelect.style.width = '100%';
-    ['ml','g','pc','kg_horse'].forEach(u => { const opt = document.createElement('option'); opt.value = u; opt.textContent = u; unitSelect.appendChild(opt); });
-    addField('Unit / Enhet:', unitSelect);
-
-    // Route dropdown from config
-    const routeSelect = document.createElement('select'); 
-    routeSelect.className = 'med-route form-control'; 
-    routeSelect.style.width = '100%';
-    const defaultOpt = document.createElement('option'); defaultOpt.value = ''; defaultOpt.textContent = 'Välj...';
-    routeSelect.appendChild(defaultOpt);
-    config.administrationRoutes.forEach(route => {
-      const opt = document.createElement('option'); 
-      opt.value = route; 
-      opt.textContent = route; 
-      routeSelect.appendChild(opt);
-    });
-    addField('Administrationssätt:', routeSelect);
-
-    const diagWrapper = document.createElement('div'); diagWrapper.style.display = 'flex'; diagWrapper.style.gap = '8px';
-    const diagInput = document.createElement('input'); diagInput.type = 'text'; diagInput.className = 'med-diagnoskod form-control'; diagInput.style.flex = '1'; diagInput.placeholder = 't.ex. XP15';
-    const searchBtn = document.createElement('button'); searchBtn.type = 'button'; searchBtn.className = 'btn btn-default'; searchBtn.style.fontSize = '0.8rem'; searchBtn.style.padding = '4px 8px'; searchBtn.innerHTML = '<i class="glyphicon glyphicon-search"></i>';
-    searchBtn.onclick = () => { const modal = createDiagnosModal(); modal.style.display = 'flex'; const input = modal.querySelector('#plugin-search-input'); input.focus(); performSearch(input.value.trim()); };
-    diagWrapper.appendChild(diagInput); diagWrapper.appendChild(searchBtn);
-    addField('Diagnoskod:', diagWrapper);
-
-    const reasonInput = document.createElement('input'); reasonInput.type = 'text'; reasonInput.className = 'med-reason form-control'; reasonInput.style.width = '100%'; reasonInput.placeholder = 't.ex. Antibiotikabehandling, profylax';
-    addField('Anledning till behandling:', reasonInput);
-
-    newRow.appendChild(td);
-
-    function bakeData() {
-      const nativeTreatmentHidden = table.querySelector('input[name^="planned_events["][name$="][parameter]"]');
-      const treatmentId = nativeTreatmentHidden ? parseInt(nativeTreatmentHidden.value) : null;
-
-      const quantity = parseFloat(qtyInput.value) || 0;
-      const unit = unitSelect.value;
-      const routeStr = routeSelect.value;
-      const routeIndex = config.administrationRoutes.indexOf(routeStr);
-      const diagnosisCode = diagInput.value.trim();
-      const reasonText = reasonInput.value.trim();
-
-      const baked = { t: treatmentId, q: quantity, u: unit };
-      if (routeIndex >= 0) baked.r = routeIndex;
-      if (diagnosisCode) baked.d = diagnosisCode;
-      if (reasonText) baked.reason = reasonText;
-
-      let current = commentInput.value || '';
-      const clean = current.replace(new RegExp(MARKER + '.*?' + MARKER, 's'), '').trim();
-      commentInput.value = clean ? clean + '\n' + encodeData(baked) : encodeData(baked);
-
-      console.log('✅ Baked compressed →', baked);
+    // Listen for changes
+    if (!table.dataset.medPluginListener) {
+      typeSelect.addEventListener('change', updatePluginVisibility);
+      table.dataset.medPluginListener = 'true';
     }
 
-    qtyInput.addEventListener('input', bakeData);
-    unitSelect.addEventListener('change', bakeData);
-    routeSelect.addEventListener('change', bakeData);
-    diagInput.addEventListener('input', bakeData);
-    reasonInput.addEventListener('input', bakeData);
-
-    if (commentRow.nextSibling) {
-      commentRow.parentNode.insertBefore(newRow, commentRow.nextSibling);
-    } else {
-      commentRow.parentNode.appendChild(newRow);
-    }
+    updatePluginVisibility();
+    
   });
+}
+
+function injectPluginUI(table, commentRow, commentInput ) {
+  const newRow = document.createElement('tr');
+  const td = document.createElement('td');
+  newRow.setAttribute('data-med-plugin-row', 'true');
+  td.setAttribute('colspan', '2');
+  td.style.padding = '15px 20px 15px 25px';
+  td.style.borderTop = '3px solid #5cb85c';
+  td.style.backgroundColor = '#f8fff8';
+
+  const title = document.createElement('strong');
+  title.textContent = 'Advanced medication details (plugin)';
+  td.appendChild(title);
+  td.appendChild(document.createElement('br'));
+  td.appendChild(document.createElement('br'));
+
+  function addField(labelText, element) {
+    const wrapper = document.createElement('div');
+    wrapper.style.marginBottom = '16px';
+    const label = document.createElement('label');
+    label.style.position = 'static';
+    label.style.display = 'block';
+    label.style.marginBottom = '6px';
+    label.style.fontWeight = '600';
+    label.textContent = labelText;
+    wrapper.appendChild(label);
+    wrapper.appendChild(element);
+    td.appendChild(wrapper);
+  }
+
+  const qtyInput = document.createElement('input'); qtyInput.type = 'number'; qtyInput.className = 'med-quantity form-control'; qtyInput.value = config.defaultQuantity || 1; qtyInput.step = '0.001'; qtyInput.style.width = '100%';
+  addField('Quantity / Mängd:', qtyInput);
+
+  const unitSelect = document.createElement('select'); unitSelect.className = 'med-unit form-control'; unitSelect.style.width = '100%';
+  ['ml','g','pc','kg_horse'].forEach(u => { const opt = document.createElement('option'); opt.value = u; opt.textContent = u; unitSelect.appendChild(opt); });
+  addField('Unit / Enhet:', unitSelect);
+
+  // Route dropdown from config
+  const routeSelect = document.createElement('select'); 
+  routeSelect.className = 'med-route form-control'; 
+  routeSelect.style.width = '100%';
+  const defaultOpt = document.createElement('option'); defaultOpt.value = ''; defaultOpt.textContent = 'Välj...';
+  routeSelect.appendChild(defaultOpt);
+  config.administrationRoutes.forEach(route => {
+    const opt = document.createElement('option'); 
+    opt.value = route; 
+    opt.textContent = route; 
+    routeSelect.appendChild(opt);
+  });
+  addField('Administrationssätt:', routeSelect);
+
+  const diagWrapper = document.createElement('div'); diagWrapper.style.display = 'flex'; diagWrapper.style.gap = '8px';
+  const diagInput = document.createElement('input'); diagInput.type = 'text'; diagInput.className = 'med-diagnoskod form-control'; diagInput.style.flex = '1'; diagInput.placeholder = 't.ex. XP15';
+  const searchBtn = document.createElement('button'); searchBtn.type = 'button'; searchBtn.className = 'btn btn-default'; searchBtn.style.fontSize = '0.8rem'; searchBtn.style.padding = '4px 8px'; searchBtn.innerHTML = '<i class="glyphicon glyphicon-search"></i>';
+  searchBtn.onclick = () => { const modal = createDiagnosModal(); modal.style.display = 'flex'; const input = modal.querySelector('#plugin-search-input'); input.focus(); performSearch(input.value.trim()); };
+  diagWrapper.appendChild(diagInput); diagWrapper.appendChild(searchBtn);
+  addField('Diagnoskod:', diagWrapper);
+
+  const reasonInput = document.createElement('input'); reasonInput.type = 'text'; reasonInput.className = 'med-reason form-control'; reasonInput.style.width = '100%'; reasonInput.placeholder = 't.ex. Antibiotikabehandling, profylax';
+  addField('Anledning till behandling:', reasonInput);
+
+  newRow.appendChild(td);
+
+  function bakeData() {
+    const nativeTreatmentHidden = table.querySelector('input[name^="planned_events["][name$="][parameter]"]');
+    const treatmentId = nativeTreatmentHidden ? parseInt(nativeTreatmentHidden.value) : null;
+
+    const quantity = parseFloat(qtyInput.value) || 0;
+    const unit = unitSelect.value;
+    const routeStr = routeSelect.value;
+    const routeIndex = config.administrationRoutes.indexOf(routeStr);
+    const diagnosisCode = diagInput.value.trim();
+    const reasonText = reasonInput.value.trim();
+
+    const baked = { t: treatmentId, q: quantity, u: unit };
+    if (routeIndex >= 0) baked.r = routeIndex;
+    if (diagnosisCode) baked.d = diagnosisCode;
+    if (reasonText) baked.reason = reasonText;
+
+    let current = commentInput.value || '';
+    const clean = current.replace(new RegExp(MARKER + '.*?' + MARKER, 's'), '').trim();
+    commentInput.value = clean ? clean + '\n' + encodeData(baked) : encodeData(baked);
+
+    console.log('✅ Baked compressed →', baked);
+  }
+
+  qtyInput.addEventListener('input', bakeData);
+  unitSelect.addEventListener('change', bakeData);
+  routeSelect.addEventListener('change', bakeData);
+  diagInput.addEventListener('input', bakeData);
+  reasonInput.addEventListener('input', bakeData);
+
+  if (commentRow.nextSibling) {
+    commentRow.parentNode.insertBefore(newRow, commentRow.nextSibling);
+  } else {
+    commentRow.parentNode.appendChild(newRow);
+  }
 }
 
 // ================================================================
